@@ -46,6 +46,7 @@ func run() error {
 
 	stamp := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data)))
 	v := crypto.Keccak256(stamp, data)
+	fmt.Println("HASH: ", hexutil.Encode(v))
 
 	sig, err := crypto.Sign(v, privateKey)
 	if err != nil {
@@ -54,7 +55,7 @@ func run() error {
 
 	sigHash := hexutil.Encode(sig)
 
-	fmt.Println(sigHash)
+	fmt.Println("SIG: ", sigHash)
 
 	// Capture the public key associated with this data and signature.
 	publicKey, err := crypto.SigToPub(v, sig)
@@ -64,7 +65,7 @@ func run() error {
 
 	// Extract the account address from the public key.
 	address := crypto.PubkeyToAddress(*publicKey).String()
-	fmt.Println(address)
+	fmt.Println("ADDRESS: ", address)
 
 	// =============================================================================
 	// OVER THE WIRE
@@ -82,6 +83,7 @@ func run() error {
 
 	stamp2 := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data2)))
 	v2 := crypto.Keccak256(stamp2, data2)
+	fmt.Println("HASH2: ", hexutil.Encode(v2))
 
 	sig2, err := crypto.Sign(v2, privateKey)
 	if err != nil {
@@ -89,7 +91,7 @@ func run() error {
 	}
 
 	sigHash2 := hexutil.Encode(sig2)
-	fmt.Println(sigHash2)
+	fmt.Println("SIG2: ", sigHash2)
 
 	// Capture the public key associated with this data and signature.
 	publicKey2, err := crypto.SigToPub(v2, sig2)
@@ -99,7 +101,7 @@ func run() error {
 
 	// Extract the account address from the public key.
 	address2 := crypto.PubkeyToAddress(*publicKey2).String()
-	fmt.Println(address2)
+	fmt.Println("ADDRESS2: ", address2)
 
 	return nil
 }
