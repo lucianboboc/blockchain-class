@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -45,10 +47,10 @@ func run() error {
 	}
 
 	stamp := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data)))
-	v := crypto.Keccak256(stamp, data)
-	fmt.Println("HASH: ", hexutil.Encode(v))
+	hash1 := crypto.Keccak256(stamp, data)
+	fmt.Println("HASH: ", hexutil.Encode(hash1))
 
-	sig, err := crypto.Sign(v, privateKey)
+	sig, err := crypto.Sign(hash1, privateKey)
 	if err != nil {
 		return fmt.Errorf("unable to sign: %w", err)
 	}
@@ -58,7 +60,7 @@ func run() error {
 	fmt.Println("SIG: ", sigHash)
 
 	// Capture the public key associated with this data and signature.
-	publicKey, err := crypto.SigToPub(v, sig)
+	publicKey, err := crypto.SigToPub(hash1, sig)
 	if err != nil {
 		return fmt.Errorf("unable to pub: %w", err)
 	}
@@ -82,10 +84,10 @@ func run() error {
 	}
 
 	stamp2 := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data2)))
-	v2 := crypto.Keccak256(stamp2, data2)
-	fmt.Println("HASH2: ", hexutil.Encode(v2))
+	hash2 := crypto.Keccak256(stamp2, data2)
+	fmt.Println("HASH2: ", hexutil.Encode(hash2))
 
-	sig2, err := crypto.Sign(v2, privateKey)
+	sig2, err := crypto.Sign(hash2, privateKey)
 	if err != nil {
 		return fmt.Errorf("unable to sign: %w", err)
 	}
@@ -94,7 +96,7 @@ func run() error {
 	fmt.Println("SIG2: ", sigHash2)
 
 	// Capture the public key associated with this data and signature.
-	publicKey2, err := crypto.SigToPub(v2, sig2)
+	publicKey2, err := crypto.SigToPub(hash2, sig2)
 	if err != nil {
 		return fmt.Errorf("unable to pub: %w", err)
 	}
@@ -103,5 +105,27 @@ func run() error {
 	address2 := crypto.PubkeyToAddress(*publicKey2).String()
 	fmt.Println("ADDRESS2: ", address2)
 
+	v, r, s, err := ToVRSFromHexSignature(sigHash2)
+	if err != nil {
+		return fmt.Errorf("unable to VRS: %w", err)
+	}
+
+	fmt.Println("V|R|S", v, r, s)
+
 	return nil
+}
+
+// ToVRSFromHexSignature converts a hex representation of the signature into
+// its R, S and V parts.
+func ToVRSFromHexSignature(sigStr string) (v, r, s *big.Int, err error) {
+	sig, err := hex.DecodeString(sigStr[2:])
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	r = big.NewInt(0).SetBytes(sig[:32])
+	s = big.NewInt(0).SetBytes(sig[32:64])
+	v = big.NewInt(0).SetBytes([]byte{sig[64]})
+
+	return v, r, s, nil
 }
