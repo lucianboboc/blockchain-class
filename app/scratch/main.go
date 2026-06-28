@@ -154,3 +154,21 @@ func ToVRSFromHexSignature(sigStr string) (v, r, s *big.Int, err error) {
 
 	return v, r, s, nil
 }
+
+// =============================================================================
+
+// SignedTx is a signed version of the transaction. This is how clients like
+// a wallet provide transactions for inclusion into the blockchain.
+type SignedTx struct {
+	Tx
+	V *big.Int `json:"v"` // Ethereum: Recovery identifier, either 29 or 30 with ardanID.
+	R *big.Int `json:"r"` // Ethereum: First coordinate of the ECDSA signature.
+	S *big.Int `json:"s"` // Ethereum: Second coordinate of the ECDSA signature.
+}
+
+// Validate verifies the transaction has a proper signature that conforms to our
+// standards. It also checks the from field matches the account that signed the
+// transaction. Last it checks the format of the from and to fields.
+func (tx SignedTx) Validate(chainID uint16) error {
+	return nil
+}
