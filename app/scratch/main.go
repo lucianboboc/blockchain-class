@@ -56,5 +56,19 @@ func run() error {
 	sigHash := hexutil.Encode(sig)
 
 	fmt.Println(sigHash)
+
+	// =============================================================================
+	// OVER THE WIRE
+
+	// Capture the public key associated with this data and signature.
+	publicKey, err := crypto.SigToPub(v, sig)
+	if err != nil {
+		return fmt.Errorf("unable to pub: %w", err)
+	}
+
+	// Extract the account address from the public key.
+	address := crypto.PubkeyToAddress(*publicKey).String()
+	fmt.Println(address)
+
 	return nil
 }
