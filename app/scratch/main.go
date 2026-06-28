@@ -29,7 +29,7 @@ func run() error {
 	//}
 
 	tx := Tx{
-		FromID: "Lucian",
+		FromID: "0xF01813E4B85e178A83e29B8E7bF26BD830a25f32",
 		ToID:   "Arthur",
 		Value:  1000,
 	}
@@ -57,9 +57,6 @@ func run() error {
 
 	fmt.Println(sigHash)
 
-	// =============================================================================
-	// OVER THE WIRE
-
 	// Capture the public key associated with this data and signature.
 	publicKey, err := crypto.SigToPub(v, sig)
 	if err != nil {
@@ -69,6 +66,42 @@ func run() error {
 	// Extract the account address from the public key.
 	address := crypto.PubkeyToAddress(*publicKey).String()
 	fmt.Println(address)
+
+	// =============================================================================
+	// OVER THE WIRE
+
+	tx2 := Tx{
+		FromID: "0xF01813E4B85e178A83e29B8E7bF26BD830a25f32",
+		ToID:   "Nicola",
+		Value:  250,
+	}
+
+	data2, err := json.Marshal(tx2)
+	if err != nil {
+		return fmt.Errorf("unable to marshal: %w", err)
+	}
+
+	// Hash the stamp and txHash together in a final 32 byte array
+	// that represents the data.
+	v2 := crypto.Keccak256(data2)
+
+	sig2, err := crypto.Sign(v2, privateKey)
+	if err != nil {
+		return fmt.Errorf("unable to sign: %w", err)
+	}
+
+	sigHash2 := hexutil.Encode(sig2)
+	fmt.Println(sigHash2)
+
+	// Capture the public key associated with this data and signature.
+	publicKey2, err := crypto.SigToPub(v2, sig2)
+	if err != nil {
+		return fmt.Errorf("unable to pub: %w", err)
+	}
+
+	// Extract the account address from the public key.
+	address2 := crypto.PubkeyToAddress(*publicKey2).String()
+	fmt.Println(address2)
 
 	return nil
 }
