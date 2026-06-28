@@ -44,9 +44,8 @@ func run() error {
 		return fmt.Errorf("unable to marshal: %w", err)
 	}
 
-	// Hash the stamp and txHash together in a final 32 byte array
-	// that represents the data.
-	v := crypto.Keccak256(data)
+	stamp := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data)))
+	v := crypto.Keccak256(stamp, data)
 
 	sig, err := crypto.Sign(v, privateKey)
 	if err != nil {
@@ -81,9 +80,8 @@ func run() error {
 		return fmt.Errorf("unable to marshal: %w", err)
 	}
 
-	// Hash the stamp and txHash together in a final 32 byte array
-	// that represents the data.
-	v2 := crypto.Keccak256(data2)
+	stamp2 := []byte(fmt.Sprintf("\x19Ardan Signed Message:\n%d", len(data2)))
+	v2 := crypto.Keccak256(stamp2, data2)
 
 	sig2, err := crypto.Sign(v2, privateKey)
 	if err != nil {
