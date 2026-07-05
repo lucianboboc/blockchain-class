@@ -82,6 +82,11 @@ func (s *State) Shutdown() error {
 
 // =============================================================================
 
+// Genesis returns a copy of the genesis information.
+func (s *State) Genesis() genesis.Genesis {
+	return s.genesis
+}
+
 // MempoolLength returns the current length of the mempool.
 func (s *State) MempoolLength() int {
 	return s.mempool.Count()
