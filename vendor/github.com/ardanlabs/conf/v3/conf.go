@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -21,7 +22,34 @@ type Version struct {
 // Parsers declare behavior to extend the different parsers that
 // can be used to unmarshal config.
 type Parsers interface {
-	Process(prefix string, cfg interface{}) error
+	Process(prefix string, cfg any) error
+}
+
+// parseOptions configures the behavior of the Parse function.
+type parseOptions struct {
+	strictFlags bool
+	parsers     []Parsers
+}
+
+// ParseOption defines a functional option for configuring Parse behavior.
+type ParseOption func(*parseOptions)
+
+// WithStrictFlags returns a ParseOption that enables strict flag validation.
+// When enabled, Parse will return an error if any command-line flags are
+// provided that don't correspond to fields in the configuration struct.
+func WithStrictFlags() ParseOption {
+	return func(opts *parseOptions) {
+		opts.strictFlags = true
+	}
+}
+
+// WithParser returns a ParseOption that adds a custom parser to the parsing pipeline.
+// Parsers are executed in the order they are added, before environment variables
+// and command-line flags are processed.
+func WithParser(parser Parsers) ParseOption {
+	return func(opts *parseOptions) {
+		opts.parsers = append(opts.parsers, parser)
+	}
 }
 
 // =============================================================================
@@ -30,38 +58,68 @@ type Parsers interface {
 // apply the defaults first and then apply environment variables and
 // command line argument overrides to the struct. ErrHelpWanted is
 // returned when the --help or --version are detected.
-func Parse(prefix string, cfg interface{}, parsers ...Parsers) (string, error) {
+//
+// For backward compatibility, parsers can be passed directly. However,
+// the preferred approach is to use ParseWithOptions with WithParser().
+func Parse(prefix string, cfg any, parsers ...Parsers) (string, error) {
+	// Convert variadic parsers to options for backward compatibility
+	options := make([]ParseOption, len(parsers))
+	for i, parser := range parsers {
+		options[i] = WithParser(parser)
+	}
+	return ParseWithOptions(prefix, cfg, options...)
+}
+
+// ParseWithOptions parses the specified config struct with additional parsing options.
+// This function will apply the defaults first and then apply environment variables and
+// command line argument overrides to the struct. ErrHelpWanted is returned when the
+// --help or --version are detected.
+//
+// Options can be provided to customize parsing behavior:
+//   - conf.WithStrictFlags(): Return an error for unrecognized command-line flags
+//   - conf.WithParser(parser): Add a custom parser to the parsing pipeline
+//
+// Example:
+//
+//	info, err := conf.ParseWithOptions("", &cfg, conf.WithStrictFlags(), conf.WithParser(myCustomParser))
+func ParseWithOptions(prefix string, cfg any, options ...ParseOption) (string, error) {
 	var args []string
 	if len(os.Args) > 1 {
 		args = os.Args[1:]
 	}
 
-	for _, parser := range parsers {
+	// Apply options to build configuration
+	opts := &parseOptions{}
+	for _, option := range options {
+		option(opts)
+	}
+
+	// Process parsers from options
+	for _, parser := range opts.parsers {
 		if err := parser.Process(prefix, cfg); err != nil {
 			return "", fmt.Errorf("external parser: %w", err)
 		}
 	}
 
-	err := parse(args, prefix, cfg)
+	err := parse(args, prefix, cfg, opts)
 	if err == nil {
 		return "", nil
 	}
 
-	switch err {
-	case ErrHelpWanted:
+	switch {
+	case errors.Is(err, ErrHelpWanted):
 		usage, err := UsageInfo(prefix, cfg)
 		if err != nil {
 			return "", fmt.Errorf("generating config usage: %w", err)
 		}
 		return usage, ErrHelpWanted
 
-	case errVersionWanted:
+	case errors.Is(err, ErrVersionWanted):
 		version, err := VersionInfo(prefix, cfg)
 		if err != nil {
 			return "", fmt.Errorf("generating config version: %w", err)
 		}
-
-		return version, ErrHelpWanted
+		return version, ErrVersionWanted
 	}
 
 	return "", fmt.Errorf("parsing config: %w", err)
@@ -69,19 +127,24 @@ func Parse(prefix string, cfg interface{}, parsers ...Parsers) (string, error) {
 
 // String returns a stringified version of the provided conf-tagged
 // struct, minus any fields tagged with `noprint`.
-func String(v interface{}) (string, error) {
+func String(v any) (string, error) {
 	fields, err := extractFields(nil, v)
 	if err != nil {
 		return "", err
 	}
 
+	sf := sortedFields{
+		fields: fields,
+	}
+	sort.Sort(&sf)
+
 	var s strings.Builder
-	for i, fld := range fields {
+	for i, fld := range sf.fields {
 		if fld.Options.Noprint {
 			continue
 		}
 
-		s.WriteString(flagUsage(fld))
+		s.WriteString(longOptInfo(fld))
 		s.WriteString("=")
 		v := fmt.Sprintf("%v", fld.Field.Interface())
 
@@ -103,6 +166,10 @@ func String(v interface{}) (string, error) {
 
 // maskVal masks an entire string or the user:password pair of a URL.
 func maskVal(v string) string {
+	if v == "" {
+		return ""
+	}
+
 	mask := "xxxxxx"
 	if u, err := url.Parse(v); err == nil {
 		userPass := u.User.String()
@@ -114,7 +181,7 @@ func maskVal(v string) string {
 }
 
 // UsageInfo provides output to display the config usage on the command line.
-func UsageInfo(namespace string, v interface{}) (string, error) {
+func UsageInfo(namespace string, v any) (string, error) {
 	fields, err := extractFields(nil, v)
 	if err != nil {
 		return "", err
@@ -124,7 +191,7 @@ func UsageInfo(namespace string, v interface{}) (string, error) {
 }
 
 // VersionInfo provides output to display the application version and description on the command line.
-func VersionInfo(namespace string, v interface{}) (string, error) {
+func VersionInfo(namespace string, v any) (string, error) {
 	fields, err := extractFields(nil, v)
 	if err != nil {
 		return "", err
@@ -137,6 +204,7 @@ func VersionInfo(namespace string, v interface{}) (string, error) {
 			str.WriteString(fields[i].Field.String())
 			continue
 		}
+
 		if fields[i].Name == descKey && fields[i].Field.Len() > 0 {
 			if str.Len() > 0 {
 				str.WriteString("\n")
@@ -145,13 +213,15 @@ func VersionInfo(namespace string, v interface{}) (string, error) {
 			break
 		}
 	}
+
 	return str.String(), nil
 }
 
 // =============================================================================
 
 // parse parses configuration into the provided struct.
-func parse(args []string, namespace string, cfgStruct interface{}) error {
+func parse(args []string, namespace string, cfgStruct any, opts *parseOptions) error {
+
 	// Create the flag and env sources.
 	flag, err := newSourceFlag(args)
 	if err != nil {
@@ -164,6 +234,7 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 	if err != nil {
 		return err
 	}
+
 	if len(fields) == 0 {
 		return errors.New("no fields identified in config struct")
 	}
@@ -173,7 +244,11 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 
 	// Process all fields found in the config struct provided.
 	for _, field := range fields {
-		field := field
+
+		// Do not change version fields Build and Description
+		if field.Name == buildKey || field.Name == descKey {
+			continue
+		}
 
 		// If the field is supposed to hold the leftover args then hold a reference for later.
 		if field.Field.Type() == argsT {
@@ -191,7 +266,19 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 					err:       err,
 				}
 			}
+			if field.mapParent.IsValid() {
+				field.mapParent.SetMapIndex(field.mapKey, field.Field)
+			}
 		}
+
+		// If this is an immutable field then don't let it
+		// be overridden.
+		if field.Options.Immutable {
+			continue
+		}
+
+		// Flag to check if an override value is provided.
+		foundOverride := false
 
 		// Process each field against all sources.
 		for _, sourcer := range sources {
@@ -199,12 +286,12 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 				continue
 			}
 
-			value, provided := sourcer.Source(field)
-			if !provided {
+			value, ok := sourcer.Source(field)
+			if !ok {
 				continue
 			}
 
-			// A value was found so update the struct value with it.
+			// A override was found so update the struct value with it.
 			if err := processField(false, value, field.Field); err != nil {
 				return &FieldError{
 					fieldName: field.Name,
@@ -213,12 +300,28 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 					err:       err,
 				}
 			}
+			if field.mapParent.IsValid() {
+				field.mapParent.SetMapIndex(field.mapKey, field.Field)
+			}
+
+			foundOverride = true
 		}
 
-		// If this key is not provided by any source, check if it was
-		// required to be provided.
-		if field.Options.Required && field.Field.IsZero() {
-			return fmt.Errorf("required field %s is missing value", field.Name)
+		if field.Options.NotZero && field.Field.IsZero() {
+			envSuffix := ""
+			if field.Options.EnvName != "" {
+				envSuffix = fmt.Sprintf(" (env: %s)", field.Options.EnvName)
+			}
+			return fmt.Errorf("field %s%s is set to zero value", field.Name, envSuffix)
+		}
+
+		// If the field is marked 'required', check if no value was provided.
+		if field.Options.Required && !foundOverride {
+			envSuffix := ""
+			if field.Options.EnvName != "" {
+				envSuffix = fmt.Sprintf(" (env: %s)", field.Options.EnvName)
+			}
+			return fmt.Errorf("required field %s%s is missing value", field.Name, envSuffix)
 		}
 	}
 
@@ -227,6 +330,18 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 	if argsF != nil {
 		args := reflect.ValueOf(Args(flag.args))
 		argsF.Field.Set(args)
+	}
+
+	// If strict flag mode is enabled, check for unconsumed flags.
+	if opts != nil && opts.strictFlags {
+		if unconsumed := flag.unconsumedFlags(); len(unconsumed) > 0 {
+			// Sort for consistent error messages
+			sort.Strings(unconsumed)
+			if len(unconsumed) == 1 {
+				return fmt.Errorf("unrecognized flag: --%s", unconsumed[0])
+			}
+			return fmt.Errorf("unrecognized flags: --%s", strings.Join(unconsumed, ", --"))
+		}
 	}
 
 	return nil
@@ -238,7 +353,7 @@ func parse(args []string, namespace string, cfgStruct interface{}) error {
 type Args []string
 
 // argsT is used by Parse and Usage to detect struct fields of the Args type.
-var argsT = reflect.TypeOf(Args{})
+var argsT = reflect.TypeFor[Args]()
 
 // Num returns the i'th argument in the Args slice. It returns an empty string
 // the request element is not present.

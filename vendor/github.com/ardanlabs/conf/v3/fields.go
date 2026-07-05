@@ -36,6 +36,11 @@ type Field struct {
 	// Important for flag parsing or any other source where
 	// booleans might be treated specially.
 	BoolField bool
+
+	// Non-zero only for map entry fields. After the field value is set,
+	// it must be written back to mapParent at mapKey via SetMapIndex.
+	mapParent reflect.Value
+	mapKey    reflect.Value
 }
 
 // FieldOptions maintain flag options for a given field.
@@ -48,16 +53,18 @@ type FieldOptions struct {
 	Noprint       bool
 	Required      bool
 	Mask          bool
+	NotZero       bool
+	Immutable     bool
 }
 
 // extractFields uses reflection to examine the struct and generate the keys.
-func extractFields(prefix []string, target interface{}) ([]Field, error) {
+func extractFields(prefix []string, target any) ([]Field, error) {
 	if prefix == nil {
 		prefix = []string{}
 	}
 	s := reflect.ValueOf(target)
 
-	if s.Kind() != reflect.Ptr {
+	if s.Kind() != reflect.Pointer {
 		return nil, ErrInvalidStruct
 	}
 	s = s.Elem()
@@ -92,7 +99,7 @@ func extractFields(prefix []string, target interface{}) ([]Field, error) {
 		fieldKey := append(prefix, camelSplit(fieldName)...)
 
 		// Drill down through pointers until we bottom out at type or nil.
-		for f.Kind() == reflect.Ptr {
+		for f.Kind() == reflect.Pointer {
 			if f.IsNil() {
 
 				// It's not a struct so leave it alone.
@@ -148,6 +155,40 @@ func extractFields(prefix []string, target interface{}) ([]Field, error) {
 				BoolField: f.Kind() == reflect.Bool,
 			}
 			fields = append(fields, fld)
+
+			// For non-nil, non-empty string-keyed maps also emit per-entry
+			// fields so individual keys can be overridden via their own env
+			// var or flag. Per-entry fields are appended after the whole-map
+			// field so they take precedence (processed later in the parse loop).
+			if f.Kind() == reflect.Map && f.Type().Key().Kind() == reflect.String &&
+				!f.IsNil() && len(f.MapKeys()) > 0 {
+
+				valType := f.Type().Elem()
+				for _, mapKey := range f.MapKeys() {
+					keyStr := mapKey.String()
+					entryKey := append(append([]string{}, fieldKey...), keyStr)
+
+					tmpVal := reflect.New(valType).Elem()
+					if existing := f.MapIndex(mapKey); existing.IsValid() {
+						tmpVal.Set(existing)
+					}
+
+					fields = append(fields, Field{
+						Name:      fieldName + "[" + keyStr + "]",
+						EnvKey:    entryKey,
+						FlagKey:   entryKey,
+						Field:     tmpVal,
+						BoolField: valType.Kind() == reflect.Bool,
+						Options: FieldOptions{
+							Immutable: fieldOpts.Immutable,
+							Mask:      fieldOpts.Mask,
+							Noprint:   fieldOpts.Noprint,
+						},
+						mapParent: f,
+						mapKey:    mapKey,
+					})
+				}
+			}
 		}
 	}
 
@@ -172,8 +213,12 @@ func parseTag(tagStr string) (FieldOptions, error) {
 				f.Noprint = true
 			case "required":
 				f.Required = true
+			case "notzero":
+				f.NotZero = true
 			case "mask":
 				f.Mask = true
+			case "immutable":
+				f.Immutable = true
 			}
 		case 2:
 			tagPropVal := strings.TrimSpace(vals[1])
@@ -258,7 +303,7 @@ func camelSplit(src string) []string {
 func processField(settingDefault bool, value string, field reflect.Value) error {
 	typ := field.Type()
 
-	if typ.Kind() == reflect.Ptr {
+	if typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 		if field.IsNil() {
 			field.Set(reflect.New(typ))
@@ -361,7 +406,7 @@ func processField(settingDefault bool, value string, field reflect.Value) error 
 	return nil
 }
 
-func interfaceFrom(field reflect.Value, fn func(interface{}, *bool)) {
+func interfaceFrom(field reflect.Value, fn func(any, *bool)) {
 
 	// It may be impossible for a struct field to fail this check.
 	if !field.CanInterface() {
@@ -382,17 +427,17 @@ type Setter interface {
 }
 
 func setterFrom(field reflect.Value) (s Setter) {
-	interfaceFrom(field, func(v interface{}, ok *bool) { s, *ok = v.(Setter) })
+	interfaceFrom(field, func(v any, ok *bool) { s, *ok = v.(Setter) })
 	return s
 }
 
 func textUnmarshaler(field reflect.Value) (t encoding.TextUnmarshaler) {
-	interfaceFrom(field, func(v interface{}, ok *bool) { t, *ok = v.(encoding.TextUnmarshaler) })
+	interfaceFrom(field, func(v any, ok *bool) { t, *ok = v.(encoding.TextUnmarshaler) })
 	return t
 }
 
 func binaryUnmarshaler(field reflect.Value) (b encoding.BinaryUnmarshaler) {
-	interfaceFrom(field, func(v interface{}, ok *bool) { b, *ok = v.(encoding.BinaryUnmarshaler) })
+	interfaceFrom(field, func(v any, ok *bool) { b, *ok = v.(encoding.BinaryUnmarshaler) })
 	return b
 }
 
