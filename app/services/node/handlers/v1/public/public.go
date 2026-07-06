@@ -9,6 +9,7 @@ import (
 	"github.com/ardanlabs/blockchain/business/web/errs"
 	"github.com/ardanlabs/blockchain/foundation/blockchain/database"
 	"github.com/ardanlabs/blockchain/foundation/blockchain/state"
+	"github.com/ardanlabs/blockchain/foundation/nameservice"
 	"github.com/ardanlabs/blockchain/foundation/web"
 	"go.uber.org/zap"
 )
@@ -17,6 +18,7 @@ import (
 type Handlers struct {
 	Log   *zap.SugaredLogger
 	State *state.State
+	NS    *nameservice.NameService
 }
 
 // SubmitWalletTransaction adds new transactions to the mempool.
@@ -57,6 +59,38 @@ func (h Handlers) Genesis(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return web.Respond(ctx, w, gen, http.StatusOK)
 }
 
+// Mempool returns the set of uncommitted transactions.
+func (h Handlers) Mempool(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
+	acct := web.Param(r, "account")
+
+	mempool := h.State.Mempool()
+
+	trans := []tx{}
+	for _, tran := range mempool {
+		if acct != "" && ((acct != string(tran.FromID)) && (acct != string(tran.ToID))) {
+			continue
+		}
+
+		trans = append(trans, tx{
+			FromAccount: tran.FromID,
+			FromName:    h.NS.Lookup(tran.FromID),
+			To:          tran.ToID,
+			ToName:      h.NS.Lookup(tran.ToID),
+			ChainID:     tran.ChainID,
+			Nonce:       tran.Nonce,
+			Value:       tran.Value,
+			Tip:         tran.Tip,
+			Data:        tran.Data,
+			TimeStamp:   tran.TimeStamp,
+			GasPrice:    tran.GasPrice,
+			GasUnits:    tran.GasUnits,
+			Sig:         tran.SignatureString(),
+		})
+	}
+
+	return web.Respond(ctx, w, trans, http.StatusOK)
+}
+
 // Accounts returns the current balances for all users.
 func (h Handlers) Accounts(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	accountStr := web.Param(r, "account")
@@ -79,34 +113,4 @@ func (h Handlers) Accounts(ctx context.Context, w http.ResponseWriter, r *http.R
 	}
 
 	return web.Respond(ctx, w, accounts, http.StatusOK)
-}
-
-// Mempool returns the set of uncommitted transactions.
-func (h Handlers) Mempool(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	acct := web.Param(r, "account")
-
-	mempool := h.State.Mempool()
-
-	trans := []tx{}
-	for _, tran := range mempool {
-		if acct != "" && ((acct != string(tran.FromID)) && (acct != string(tran.ToID))) {
-			continue
-		}
-
-		trans = append(trans, tx{
-			FromAccount: tran.FromID,
-			To:          tran.ToID,
-			ChainID:     tran.ChainID,
-			Nonce:       tran.Nonce,
-			Value:       tran.Value,
-			Tip:         tran.Tip,
-			Data:        tran.Data,
-			TimeStamp:   tran.TimeStamp,
-			GasPrice:    tran.GasPrice,
-			GasUnits:    tran.GasUnits,
-			Sig:         tran.SignatureString(),
-		})
-	}
-
-	return web.Respond(ctx, w, trans, http.StatusOK)
 }

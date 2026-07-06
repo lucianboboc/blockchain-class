@@ -138,7 +138,7 @@ func (mp *Mempool) PickBest(howMany ...uint16) []database.BlockTx {
 
 	// The selection algorithms is expecting this slice of transactions
 	// organized by account.
-	return nil
+	return mp.selectFn(m, number)
 }
 
 // =============================================================================
