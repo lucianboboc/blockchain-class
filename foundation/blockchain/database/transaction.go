@@ -112,6 +112,18 @@ func (tx SignedTx) Validate(chainID uint16) error {
 	return nil
 }
 
+// SignatureString returns the signature as a string.
+func (tx SignedTx) SignatureString() string {
+	return signature.SignatureString(tx.V, tx.R, tx.S)
+}
+
+// String implements the Stringer interface for logging.
+func (tx SignedTx) String() string {
+	return fmt.Sprintf("%s:%d", tx.FromID, tx.Nonce)
+}
+
+// =============================================================================
+
 // BlockTx represents the transaction as it's recorded inside a block. This
 // includes a timestamp and gas fees.
 type BlockTx struct {
