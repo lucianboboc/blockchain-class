@@ -1,6 +1,10 @@
 package state
 
-import "github.com/ardanlabs/blockchain/foundation/blockchain/database"
+import (
+	"context"
+
+	"github.com/ardanlabs/blockchain/foundation/blockchain/database"
+)
 
 // UpsertWalletTransaction accepts a transaction from a wallet for inclusion.
 func (s *State) UpsertWalletTransaction(signedTx database.SignedTx) error {
@@ -22,8 +26,13 @@ func (s *State) UpsertWalletTransaction(signedTx database.SignedTx) error {
 		return err
 	}
 
-	//s.Worker.SignalShareTx(tx)
-	//s.Worker.SignalStartMining()
+	// HACK
+	if s.mempool.Count() == 6 {
+		go func() {
+			s.MineNewBlock(context.Background())
+			s.mempool.Truncate()
+		}()
+	}
 
 	return nil
 }
