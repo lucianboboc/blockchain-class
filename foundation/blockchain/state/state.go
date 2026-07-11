@@ -27,6 +27,7 @@ type Worker interface {
 type Config struct {
 	BeneficiaryID  database.AccountID
 	Host           string
+	Storage        database.Storage
 	Genesis        genesis.Genesis
 	SelectStrategy string
 	EvHandler      EventHandler
@@ -41,6 +42,7 @@ type State struct {
 	beneficiaryID database.AccountID
 	evHandler     EventHandler
 
+	storage database.Storage
 	genesis genesis.Genesis
 	mempool *mempool.Mempool
 	db      *database.Database
@@ -59,7 +61,7 @@ func New(cfg Config) (*State, error) {
 	}
 
 	// Access the storage for the blockchain.
-	db, err := database.New(cfg.Genesis, ev)
+	db, err := database.New(cfg.Genesis, cfg.Storage, ev)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +75,7 @@ func New(cfg Config) (*State, error) {
 	// Create the State to provide support for managing the blockchain.
 	state := State{
 		beneficiaryID: cfg.BeneficiaryID,
+		storage:       cfg.Storage,
 		evHandler:     ev,
 		genesis:       cfg.Genesis,
 		mempool:       mempool,
