@@ -21,19 +21,6 @@ type Handlers struct {
 	NS    *nameservice.NameService
 }
 
-// Cancel
-func (h Handlers) Cancel(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
-	h.State.Worker.SignalCancelMining()
-
-	resp := struct {
-		Status string `json:"status"`
-	}{
-		Status: "canceling",
-	}
-
-	return web.Respond(ctx, w, resp, http.StatusOK)
-}
-
 // SubmitWalletTransaction adds new transactions to the mempool.
 func (h Handlers) SubmitWalletTransaction(ctx context.Context, w http.ResponseWriter, r *http.Request) error {
 	v, err := web.GetValues(ctx)
