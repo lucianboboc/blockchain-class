@@ -20,6 +20,7 @@ type Worker interface {
 	Sync()
 	SignalStartMining()
 	SignalCancelMining()
+	SignalShareTx(blockTx database.BlockTx)
 }
 
 // =============================================================================
