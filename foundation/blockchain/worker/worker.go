@@ -4,10 +4,15 @@ package worker
 
 import (
 	"sync"
+	"time"
 
 	"github.com/ardanlabs/blockchain/foundation/blockchain/database"
 	"github.com/ardanlabs/blockchain/foundation/blockchain/state"
 )
+
+// peerUpdateInterval represents the interval of finding new peer nodes
+// and updating the blockchain on disk with missing blocks.
+const peerUpdateInterval = time.Second * 10
 
 // =============================================================================
 
@@ -15,6 +20,7 @@ import (
 type Worker struct {
 	state        *state.State
 	wg           sync.WaitGroup
+	ticker       time.Ticker
 	shut         chan struct{}
 	startMining  chan bool
 	cancelMining chan bool
@@ -27,6 +33,7 @@ type Worker struct {
 func Run(st *state.State, evHandler state.EventHandler) {
 	w := Worker{
 		state:        st,
+		ticker:       *time.NewTicker(peerUpdateInterval),
 		shut:         make(chan struct{}),
 		startMining:  make(chan bool, 1),
 		cancelMining: make(chan bool, 1),
@@ -42,6 +49,7 @@ func Run(st *state.State, evHandler state.EventHandler) {
 
 	// Load the set of operations we need to run.
 	operations := []func(){
+		w.peerOperations,
 		w.shareTxOperations,
 		w.powOperations,
 	}
@@ -76,6 +84,9 @@ func Run(st *state.State, evHandler state.EventHandler) {
 func (w *Worker) Shutdown() {
 	w.evHandler("worker: shutdown: started")
 	defer w.evHandler("worker: shutdown: completed")
+
+	w.evHandler("worker: shutdown: stop ticker")
+	w.ticker.Stop()
 
 	w.evHandler("worker: shutdown: signal cancel mining")
 	w.SignalCancelMining()
