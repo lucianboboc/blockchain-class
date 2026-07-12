@@ -6,6 +6,7 @@ import (
 	"github.com/ardanlabs/blockchain/foundation/blockchain/database"
 	"github.com/ardanlabs/blockchain/foundation/blockchain/genesis"
 	"github.com/ardanlabs/blockchain/foundation/blockchain/mempool"
+	"github.com/ardanlabs/blockchain/foundation/blockchain/peer"
 )
 
 // EventHandler defines a function that is called when events
@@ -16,6 +17,7 @@ type EventHandler func(v string, args ...any)
 // package providing support for mining, peer updates, and transaction sharing.
 type Worker interface {
 	Shutdown()
+	Sync()
 	SignalStartMining()
 	SignalCancelMining()
 }
@@ -30,6 +32,7 @@ type Config struct {
 	Storage        database.Storage
 	Genesis        genesis.Genesis
 	SelectStrategy string
+	KnownPeers     *peer.PeerSet
 	EvHandler      EventHandler
 }
 
@@ -40,12 +43,14 @@ type State struct {
 	allowMining bool
 
 	beneficiaryID database.AccountID
+	host          string
 	evHandler     EventHandler
 
-	storage database.Storage
-	genesis genesis.Genesis
-	mempool *mempool.Mempool
-	db      *database.Database
+	knownPeers *peer.PeerSet
+	storage    database.Storage
+	genesis    genesis.Genesis
+	mempool    *mempool.Mempool
+	db         *database.Database
 
 	Worker Worker
 }
@@ -75,8 +80,10 @@ func New(cfg Config) (*State, error) {
 	// Create the State to provide support for managing the blockchain.
 	state := State{
 		beneficiaryID: cfg.BeneficiaryID,
+		host:          cfg.Host,
 		storage:       cfg.Storage,
 		evHandler:     ev,
+		knownPeers:    cfg.KnownPeers,
 		genesis:       cfg.Genesis,
 		mempool:       mempool,
 		db:            db,
@@ -106,6 +113,20 @@ func (s *State) Shutdown() error {
 
 // =============================================================================
 
+// IsMiningAllowed identifies if we are allowed to mine blocks. This
+// might be turned off if the blockchain needs to be re-synced.
+func (s *State) IsMiningAllowed() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.allowMining
+}
+
+// Host returns a copy of host information.
+func (s *State) Host() string {
+	return s.host
+}
+
 // Genesis returns a copy of the genesis information.
 func (s *State) Genesis() genesis.Genesis {
 	return s.genesis
@@ -134,4 +155,28 @@ func (s *State) UpsertMempool(tx database.BlockTx) error {
 // Accounts returns a copy of the database accounts.
 func (s *State) Accounts() map[database.AccountID]database.Account {
 	return s.db.Copy()
+}
+
+// AddKnownPeer provides the ability to add a new peer to
+// the known peer list.
+func (s *State) AddKnownPeer(peer peer.Peer) bool {
+	return s.knownPeers.Add(peer)
+}
+
+// RemoveKnownPeer provides the ability to remove a peer from
+// the known peer list.
+func (s *State) RemoveKnownPeer(peer peer.Peer) {
+	s.knownPeers.Remove(peer)
+}
+
+// KnownExternalPeers retrieves a copy of the known peer list without
+// including this node.
+func (s *State) KnownExternalPeers() []peer.Peer {
+	return s.knownPeers.Copy(s.host)
+}
+
+// KnownPeers retrieves a copy of the full known peer list which includes
+// this node as well. Used by the PoA selection algorithm.
+func (s *State) KnownPeers() []peer.Peer {
+	return s.knownPeers.Copy("")
 }
