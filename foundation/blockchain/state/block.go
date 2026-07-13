@@ -28,7 +28,12 @@ func (s *State) MineNewBlock(ctx context.Context) (database.Block, error) {
 	// Pick the best transactions from the mempool.
 	trans := s.mempool.PickBest(s.genesis.TransPerBlock)
 
+	// If PoA is being used, drop the difficulty down to 1 to speed up
+	// the mining operation.
 	difficulty := s.genesis.Difficulty
+	if s.Consensus() == ConsensusPOA {
+		difficulty = 1
+	}
 
 	// Attempt to create a new block by solving the POW puzzle. This can be cancelled.
 	block, err := database.POW(ctx, database.POWArgs{

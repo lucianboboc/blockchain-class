@@ -9,6 +9,29 @@ import (
 	"github.com/ardanlabs/blockchain/foundation/blockchain/peer"
 )
 
+/*
+	-- Blockchain
+	On chain fork, only remove the block need to be removed and reset.
+	Send batch of mempool tx's from txshare channel.
+	On Resync, only remove the blocks we know are bad.
+		Pass blk number to database.Reset
+		Set the correct lastblock
+		Accounting: Reverse each block
+
+	-- Testing
+	Worker concurrent testing
+*/
+
+// =============================================================================
+
+// The set of different consensus protocols that can be used.
+const (
+	ConsensusPOW = "POW"
+	ConsensusPOA = "POA"
+)
+
+// =============================================================================
+
 // EventHandler defines a function that is called when events
 // occur in the processing of persisting blocks.
 type EventHandler func(v string, args ...any)
@@ -35,6 +58,7 @@ type Config struct {
 	SelectStrategy string
 	KnownPeers     *peer.PeerSet
 	EvHandler      EventHandler
+	Consensus      string
 }
 
 // State manages the blockchain database.
@@ -46,6 +70,7 @@ type State struct {
 	beneficiaryID database.AccountID
 	host          string
 	evHandler     EventHandler
+	consensus     string
 
 	knownPeers *peer.PeerSet
 	storage    database.Storage
@@ -84,6 +109,7 @@ func New(cfg Config) (*State, error) {
 		host:          cfg.Host,
 		storage:       cfg.Storage,
 		evHandler:     ev,
+		consensus:     cfg.Consensus,
 		knownPeers:    cfg.KnownPeers,
 		genesis:       cfg.Genesis,
 		mempool:       mempool,
@@ -126,6 +152,11 @@ func (s *State) IsMiningAllowed() bool {
 // Host returns a copy of host information.
 func (s *State) Host() string {
 	return s.host
+}
+
+// Consensus returns a copy of consensus algorithm being used.
+func (s *State) Consensus() string {
+	return s.consensus
 }
 
 // Genesis returns a copy of the genesis information.
